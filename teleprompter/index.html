@@ -208,11 +208,32 @@ function beginCountdown(){
   mime=m;pos=0;render();setPlaying(false);
   countdown(startRec);
 }
+// When the phone is upright but the camera hands us a landscape feed, record
+// the centre 9:16 crop the preview shows instead of the raw landscape frame.
+var crop=null;
+function recordStream(){
+  var v=$('cam'),vw=v.videoWidth,vh=v.videoHeight;
+  var portrait=window.innerHeight>window.innerWidth;
+  if(!portrait||!vw||!vh||vh>=vw)return stream;
+  var c=document.createElement('canvas');
+  if(!c.captureStream)return stream;
+  var cw=Math.round(vh*9/16/2)*2;
+  c.width=cw;c.height=vh;
+  var ctx=c.getContext('2d'),sx=(vw-cw)/2,alive=true;
+  (function draw(){if(!alive)return;try{ctx.drawImage(v,sx,0,cw,vh,0,0,cw,vh)}catch(e){}requestAnimationFrame(draw)})();
+  var out=c.captureStream(30);
+  stream.getAudioTracks().forEach(function(t){out.addTrack(t)});
+  crop={stop:function(){alive=false;out.getVideoTracks().forEach(function(t){t.stop()})}};
+  return out;
+}
+function stopCrop(){if(crop){crop.stop();crop=null}}
 function startRec(){
-  chunks=[];
-  try{rec=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream)}catch(e){note('Recording could not start on this device.');return}
+  chunks=[];stopCrop();
+  var src=recordStream();
+  try{rec=mime?new MediaRecorder(src,{mimeType:mime}):new MediaRecorder(src)}catch(e){stopCrop();note('Recording could not start on this device.');return}
   rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data)};
   rec.onstop=function(){
+    stopCrop();
     var type=(rec.mimeType||mime||'video/mp4').split(';')[0];
     var b=new Blob(chunks,{type:type});
     if(b.size>0)showReview(b,type);
@@ -222,7 +243,7 @@ function startRec(){
 }
 function stopRec(silent){
   recording=false;setPlaying(false);stopTimer();$('recBtn').textContent='Record';
-  if(silent){rec&&(rec.onstop=null)}
+  if(silent){rec&&(rec.onstop=null);stopCrop()}
   try{rec&&rec.state!=='inactive'&&rec.stop()}catch(e){}
 }
 
