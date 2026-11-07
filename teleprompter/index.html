@@ -40,6 +40,7 @@ button:active{opacity:.7}
 #bar .row .val{flex:0 0 52px;text-align:center;font-variant-numeric:tabular-nums;font-size:14px;color:#c8c8d2}
 #bar .main{display:flex;gap:10px}
 #bar .main button{flex:1;min-height:56px;font-size:17px}
+#res{position:absolute;left:0;right:0;top:calc(env(safe-area-inset-top) + 58px);text-align:center;font-size:11px;color:rgba(255,255,255,.55);z-index:5;pointer-events:none;font-variant-numeric:tabular-nums}
 #notice{position:absolute;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 60px);z-index:6;background:rgba(20,20,26,.95);border:1px solid #3b3b46;border-radius:14px;padding:12px 14px;font-size:14px;line-height:1.4;display:none}
 #notice.on{display:block}
 #count{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:140px;font-weight:800;z-index:7;background:rgba(0,0,0,.45)}
@@ -68,6 +69,7 @@ a.btn{display:flex;align-items:center;justify-content:center;text-decoration:non
   <div id="viewport"><div id="stage"><div id="txt"></div></div></div>
   <div id="marker"></div>
   <div id="top"><button id="edit">Edit script</button><div id="timer">00:00</div><button id="flip">Flip camera</button></div>
+  <div id="res"></div>
   <div id="notice"></div>
   <div id="count"></div>
   <div id="bar">
@@ -155,10 +157,38 @@ function stopStream(){if(stream){stream.getTracks().forEach(function(t){t.stop()
 function startCam(){
   stopStream();
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){camFail();return Promise.resolve(false)}
-  return navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1080},height:{ideal:1920}},audio:true}).then(function(s){
+  return navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080}},audio:true}).then(function(s){
     stream=s;var v=$('cam');v.srcObject=s;v.style.transform=facing==='user'?'scaleX(-1)':'none';
-    v.play&&v.play().catch(function(){});note('');return true;
+    v.play&&v.play().catch(function(){});note('');
+    return waitDims().then(function(){return uprightFeed(s)}).then(function(){return true});
   }).catch(function(){camFail();return false});
+}
+function wait(ms){return new Promise(function(r){setTimeout(r,ms)})}
+function waitDims(){var v=$('cam'),n=0;return new Promise(function(r){(function chk(){if((v.videoWidth&&v.videoHeight)||n++>60)return r();setTimeout(chk,50)})()})}
+function showRes(){var v=$('cam');$('res').textContent=v.videoWidth?('camera '+v.videoWidth+'×'+v.videoHeight):''}
+$('cam').addEventListener('resize',showRes);
+$('cam').addEventListener('loadedmetadata',showRes);
+// Phone upright but camera sending a sideways (landscape) feed: ask it for an
+// upright feed so the whole sensor width is used instead of a zoomed crop.
+function uprightFeed(s){
+  var v=$('cam'),tr=s.getVideoTracks()[0];
+  if(window.innerHeight<=window.innerWidth||!tr||!tr.applyConstraints)return Promise.resolve();
+  var tries=[
+    {facingMode:facing,width:{ideal:1080},height:{ideal:1920}},
+    {facingMode:facing,aspectRatio:{exact:9/16}},
+    {facingMode:facing,width:{exact:1080},height:{exact:1920}},
+    {facingMode:facing,width:{exact:720},height:{exact:1280}}
+  ],i=0;
+  function upright(){return v.videoHeight>v.videoWidth}
+  function next(){
+    if(stream!==s||upright())return Promise.resolve();
+    if(i>=tries.length){
+      // Nothing worked: go back to the sharpest landscape feed for the crop.
+      return tr.applyConstraints({facingMode:facing,width:{ideal:1920},height:{ideal:1080}}).catch(function(){}).then(function(){return wait(400)});
+    }
+    return tr.applyConstraints(tries[i++]).catch(function(){}).then(function(){return wait(400)}).then(next);
+  }
+  return next().then(showRes);
 }
 function camFail(){
   note('The camera is blocked in this view, so recording is unavailable here. The teleprompter still works. Open this page in Safari or Chrome to try again, or record with the phone camera: <label class="file" style="display:inline-block;margin-top:8px;border-radius:10px;background:#3b82f6;padding:8px 12px;font-weight:600">Open camera app<input id="nativeCam" type="file" accept="video/*" capture="user"></label>');
