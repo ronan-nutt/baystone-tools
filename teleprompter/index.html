@@ -49,6 +49,22 @@ button:active{opacity:.7}
 #review{padding:16px;gap:12px;align-items:stretch}
 #review video{flex:1;min-height:0;width:100%;background:#000;border-radius:14px;object-fit:contain}
 #review p{margin:0;color:#9a9aa6;font-size:13px;line-height:1.4}
+.head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.head h1{font-size:20px;margin:0}
+.sub{margin:0;color:#9a9aa6;font-size:13px;line-height:1.4}
+button.big{min-height:56px;font-size:17px}
+button:disabled{opacity:.4}
+/* takes */
+#takes{padding:16px;gap:10px}
+#list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start;grid-auto-rows:max-content}
+.take{background:#15151a;border:2px solid #2a2a31;border-radius:14px;overflow:hidden}
+.take.sel{border-color:#3b82f6}
+.take video{display:block;width:100%;aspect-ratio:9/16;object-fit:cover;background:#000}
+.take .meta{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:10px;font-size:14px;cursor:pointer;min-height:48px}
+.take .meta small{color:#9a9aa6}
+.take .chk{flex:0 0 26px;height:26px;border-radius:50%;border:2px solid #666;display:flex;align-items:center;justify-content:center;font-size:15px;color:transparent}
+.take.sel .chk{background:#3b82f6;border-color:#3b82f6;color:#fff}
+#list .empty{grid-column:1/-1;color:#9a9aa6;text-align:center;margin-top:40px}
 a.btn{display:flex;align-items:center;justify-content:center;text-decoration:none;color:inherit;border-radius:14px;background:#3b82f6;font-weight:600;min-height:48px;padding:12px 16px}
 .file{position:relative;overflow:hidden}
 .file input{position:absolute;inset:0;opacity:0;width:100%;height:100%}
@@ -60,7 +76,7 @@ a.btn{display:flex;align-items:center;justify-content:center;text-decoration:non
   <h1>Teleprompter</h1>
   <p>Paste your script, then tap Start.</p>
   <textarea id="script" placeholder="Paste your script here" spellcheck="false"></textarea>
-  <div class="row"><button id="clear">Clear</button><button id="start" class="primary">Start</button></div>
+  <div class="row"><button id="clear">Clear</button><button id="openTakes" style="display:none">Takes</button><button id="start" class="primary">Start</button></div>
 </div>
 
 <div id="prompter" class="screen">
@@ -87,17 +103,26 @@ a.btn{display:flex;align-items:center;justify-content:center;text-decoration:non
 </div>
 
 <div id="review" class="screen">
+  <div class="head"><h1 id="takeLbl">Take 1</h1><span class="sub">Kept in this browser</span></div>
   <video id="out" controls playsinline></video>
-  <a id="dl" class="btn" download="recording">Save video</a>
-  <button id="share" style="display:none">Share video</button>
-  <p>If Save does nothing, tap Share, or press and hold the video and choose Save. You can also screen record this preview.</p>
-  <div class="row"><button id="again" class="rec">Record again</button><button id="back">Back to script</button></div>
+  <button id="again" class="rec big">Record another take</button>
+  <div class="row"><a id="dl" class="btn" download="recording">Save video</a><button id="share" style="display:none">Share</button></div>
+  <div class="row"><button id="delTake">Delete this take</button><button id="allTakes">All takes (1)</button></div>
+  <button id="back">Back to script</button>
+</div>
+
+<div id="takes" class="screen">
+  <div class="head"><h1>Your takes</h1><button id="selAll">Select all</button></div>
+  <p class="sub">Tap a take's name to select it. Takes stay in this browser until you delete them, so save the keepers to your phone.</p>
+  <div id="list"></div>
+  <div class="row"><button id="saveSel" class="primary">Save selected</button><button id="delSel">Delete selected</button></div>
+  <div class="row"><button id="takesRec" class="rec">Record another take</button><button id="takesBack">Back to script</button></div>
 </div>
 
 <script>
 (function(){
 var $=function(id){return document.getElementById(id)};
-var screens=['editor','prompter','review'];
+var screens=['editor','prompter','review','takes'];
 function show(n){screens.forEach(function(s){$(s).classList.toggle('on',s===n)})}
 var store={get:function(k){try{return localStorage.getItem(k)}catch(e){return null}},set:function(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
 
@@ -208,19 +233,20 @@ function uprightFeed(s){
 function camFail(){
   note('The camera is blocked in this view, so recording is unavailable here. The teleprompter still works. Open this page in Safari or Chrome to try again, or record with the phone camera: <label class="file" style="display:inline-block;margin-top:8px;border-radius:10px;background:#3b82f6;padding:8px 12px;font-weight:600">Open camera app<input id="nativeCam" type="file" accept="video/*" capture="user"></label>');
   var nc=$('nativeCam');
-  if(nc)nc.onchange=function(){if(nc.files&&nc.files[0])showReview(nc.files[0])};
+  if(nc)nc.onchange=function(){if(nc.files&&nc.files[0]){var f=nc.files[0];stopRec(true);showReview(addTake(f,f.type||'video/mp4',0))}};
 }
 $('flip').onclick=function(){facing=facing==='user'?'environment':'user';startCam()};
 
-// enter prompter
-$('start').onclick=function(){
+// enter prompter (returns the startCam promise, or null if there's no script)
+function enterPrompter(){
   var s=script.value.trim();
-  if(!s){script.focus();return}
+  if(!s){show('editor');script.focus();return null}
   txt.textContent=s;pos=0;setPlaying(false);applySize();applySpeed();applyMirror();
   show('prompter');lock();
   $('timer').textContent='00:00';
-  startCam();
-};
+  return startCam();
+}
+$('start').onclick=enterPrompter;
 $('edit').onclick=function(){
   if(recording)stopRec(true);
   setPlaying(false);stopStream();unlock();show('editor');
@@ -281,7 +307,7 @@ function startRec(){
     stopCrop();
     var type=(rec.mimeType||mime||'video/mp4').split(';')[0];
     var b=new Blob(chunks,{type:type});
-    if(b.size>0)showReview(b,type);
+    if(b.size>0)showReview(addTake(b,type,recDur));
   };
   rec.start(1000);recording=true;
   $('recBtn').textContent='Stop';startTimer();setPlaying(true);
@@ -294,31 +320,133 @@ $('restart').onclick=function(){
   if(recording){stopRec(true);beginCountdown();return}
   pos=0;render();setPlaying(false);
 };
+var recDur=0;
 function stopRec(silent){
+  if(recording)recDur=Date.now()-t0;
   recording=false;setPlaying(false);stopTimer();$('recBtn').textContent='Record';
   if(silent){rec&&(rec.onstop=null);stopCrop()}
   try{rec&&rec.state!=='inactive'&&rec.stop()}catch(e){}
 }
 
-// review
-function showReview(blob,type){
-  type=type||blob.type||'video/mp4';
-  blobOut=blob;
-  if(url)URL.revokeObjectURL(url);
-  url=URL.createObjectURL(blob);
-  var v=$('out');v.src=url;
-  var ext=type.indexOf('webm')>-1?'webm':(type.indexOf('quicktime')>-1?'mov':'mp4');
-  var d=$('dl');d.href=url;d.download='teleprompter-'+Date.now()+'.'+ext;
-  var canShare=false;
-  try{var f=new File([blob],d.download,{type:type});canShare=!!(navigator.canShare&&navigator.canShare({files:[f]}));$('share').onclick=function(){navigator.share({files:[f]}).catch(function(){})}}catch(e){}
+// takes: every finished recording is kept in this browser (IndexedDB, so a
+// reload doesn't lose them) until it's deleted.
+var takes=[],db=null,sel={},current=null;
+function dbOpen(){return new Promise(function(res){
+  try{var r=indexedDB.open('teleprompter',1);
+    r.onupgradeneeded=function(){r.result.createObjectStore('takes',{keyPath:'id'})};
+    r.onsuccess=function(){db=r.result;res()};r.onerror=function(){res()};
+  }catch(e){res()}
+})}
+function dbPut(t){if(!db)return;try{db.transaction('takes','readwrite').objectStore('takes').put({id:t.id,n:t.n,blob:t.blob,type:t.type,created:t.created,dur:t.dur})}catch(e){}}
+function dbDel(id){if(!db)return;try{db.transaction('takes','readwrite').objectStore('takes').delete(id)}catch(e){}}
+function dbAll(){return new Promise(function(res){
+  if(!db)return res([]);
+  try{var q=db.transaction('takes').objectStore('takes').getAll();q.onsuccess=function(){res(q.result||[])};q.onerror=function(){res([])}}catch(e){res([])}
+})}
+dbOpen().then(dbAll).then(function(a){
+  a.sort(function(x,y){return x.created-y.created});
+  takes=a.concat(takes.filter(function(t){return !a.some(function(s){return s.id===t.id})}));
+  counts();
+});
+function addTake(blob,type,dur){
+  var n=takes.reduce(function(m,t){return Math.max(m,t.n)},0)+1,now=Date.now();
+  var t={id:now+'-'+n,n:n,blob:blob,type:type,created:now,dur:dur||0};
+  takes.push(t);dbPut(t);counts();
+  return t;
+}
+function removeTake(t){
+  takes=takes.filter(function(x){return x!==t});delete sel[t.id];
+  if(t.url)URL.revokeObjectURL(t.url);
+  dbDel(t.id);counts();
+}
+function extFor(type){return type.indexOf('webm')>-1?'webm':(type.indexOf('quicktime')>-1?'mov':'mp4')}
+function nameFor(t){return 'take-'+t.n+'-'+t.created+'.'+extFor(t.type)}
+function urlFor(t){if(!t.url)t.url=URL.createObjectURL(t.blob);return t.url}
+function fileFor(t){try{return new File([t.blob],nameFor(t),{type:t.type})}catch(e){return null}}
+function counts(){
+  $('allTakes').textContent='All takes ('+takes.length+')';
+  var o=$('openTakes');o.style.display=takes.length?'':'none';o.textContent='Takes ('+takes.length+')';
+}
+// Save several at once: the share sheet on phones (lets you "Save Videos" to
+// Photos in one go), otherwise one download per take.
+function saveTakes(list){
+  var files=list.map(fileFor).filter(Boolean);
+  try{if(navigator.canShare&&files.length&&navigator.canShare({files:files})){navigator.share({files:files}).catch(function(){});return}}catch(e){}
+  list.forEach(function(t,i){setTimeout(function(){
+    var a=document.createElement('a');a.href=urlFor(t);a.download=nameFor(t);document.body.appendChild(a);a.click();a.remove();
+  },i*500)});
+}
+
+// review (the take that just finished)
+function showReview(t){
+  current=t;
+  $('takeLbl').textContent='Take '+t.n+(t.dur?' · '+fmt(t.dur):'');
+  $('out').src=urlFor(t);
+  var d=$('dl');d.href=urlFor(t);d.download=nameFor(t);
+  var f=fileFor(t),canShare=false;
+  try{canShare=!!(f&&navigator.canShare&&navigator.canShare({files:[f]}))}catch(e){}
+  $('share').onclick=function(){navigator.share({files:[f]}).catch(function(){})};
   $('share').style.display=canShare?'block':'none';
   setPlaying(false);stopRec(true);stopStream();unlock();
   show('review');
 }
-$('again').onclick=function(){
-  $('out').pause();show('prompter');pos=0;render();lock();$('timer').textContent='00:00';startCam();
+function recordAnother(){
+  $('out').pause();
+  var p=enterPrompter();
+  if(p)p.then(function(ok){if(ok)beginCountdown()});
+}
+$('again').onclick=recordAnother;
+$('delTake').onclick=function(){
+  if(!current||!confirm('Delete Take '+current.n+'? This can\'t be undone.'))return;
+  $('out').pause();$('out').removeAttribute('src');
+  removeTake(current);current=null;
+  if(takes.length)openTakes();else enterPrompter();
 };
+$('allTakes').onclick=function(){$('out').pause();openTakes()};
 $('back').onclick=function(){$('out').pause();show('editor')};
+
+// all takes
+function openTakes(){
+  setPlaying(false);if(recording)stopRec(true);stopStream();unlock();
+  renderTakes();show('takes');
+}
+function renderTakes(){
+  var list=$('list');list.innerHTML='';
+  if(!takes.length){list.innerHTML='<p class="empty">No takes yet.</p>'}
+  takes.slice().reverse().forEach(function(t){
+    var card=document.createElement('div');card.className='take'+(sel[t.id]?' sel':'');
+    var v=document.createElement('video');
+    v.src=urlFor(t)+'#t=0.1';v.controls=true;v.preload='metadata';v.playsInline=true;v.setAttribute('playsinline','');
+    var m=document.createElement('div');m.className='meta';
+    m.innerHTML='<span><b>Take '+t.n+'</b>'+(t.dur?' <small>'+fmt(t.dur)+'</small>':'')+'</span><span class="chk">✓</span>';
+    m.onclick=function(){if(sel[t.id])delete sel[t.id];else sel[t.id]=true;card.classList.toggle('sel',!!sel[t.id]);selUI()};
+    card.appendChild(v);card.appendChild(m);list.appendChild(card);
+  });
+  selUI();
+}
+function chosen(){return takes.filter(function(t){return sel[t.id]})}
+function selUI(){
+  var k=chosen().length,all=takes.length&&k===takes.length;
+  $('saveSel').textContent='Save selected'+(k?' ('+k+')':'');
+  $('delSel').textContent='Delete selected'+(k?' ('+k+')':'');
+  $('saveSel').disabled=$('delSel').disabled=!k;
+  $('selAll').textContent=all?'Select none':'Select all';
+  $('selAll').style.visibility=takes.length?'':'hidden';
+}
+$('selAll').onclick=function(){
+  var all=chosen().length===takes.length;sel={};
+  if(!all)takes.forEach(function(t){sel[t.id]=true});
+  renderTakes();
+};
+$('saveSel').onclick=function(){var c=chosen();if(c.length)saveTakes(c)};
+$('delSel').onclick=function(){
+  var c=chosen();if(!c.length)return;
+  if(!confirm('Delete '+c.length+' take'+(c.length>1?'s':'')+'? This can\'t be undone.'))return;
+  c.forEach(removeTake);renderTakes();
+};
+$('takesRec').onclick=recordAnother;
+$('takesBack').onclick=function(){show('editor')};
+$('openTakes').onclick=openTakes;
 })();
 </script>
 </body>
